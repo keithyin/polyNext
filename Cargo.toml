@@ -4,3 +4,14 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+asts="0.6"
+clap = {version="4.4", features=["derive"]}
+tracing = "0.1.40"
+tracing-subscriber = {version="0.3.18", features=["json", "env-filter", "fmt", "time", "local-time"]}
+time = "0.3.34"
+gskits = "0.9.3"
+mm2 = "0.13"
+crossbeam="0.8"
+num_cpus="1.16"
+rust-htslib = "0.47.0"
+ndarray="0.16"
