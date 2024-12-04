@@ -1,4 +1,7 @@
-use std::{collections::HashMap, thread};
+use std::{
+    collections::{HashMap, HashSet},
+    thread,
+};
 
 use asts::SubreadsAndSmc;
 use clap::{self, Parser};
@@ -168,34 +171,91 @@ fn polyn_ext_main(sbr_bam: &str, smc_bam: &str, threads: Option<usize>, rep_thr:
                         Some(seq.len()),
                     );
 
+                    // let plp_major_start = *plp_cnts.get_major().first().unwrap();
+                    // let plp_major_end = *plp_cnts.get_major().last().unwrap() + 1;
+                    // if plp_major_start != 0 || plp_major_end != seq.len() {
+                    //     tracing::warn!(
+                    //         "request plp_region:{}-{}, but got:{}-{}",
+                    //         0,
+                    //         seq.len(),
+                    //         plp_major_start,
+                    //         plp_major_end
+                    //     );
+                    // }
+
                     let cnts_array = Array2::from_shape_vec(
                         (10, plp_cnts.get_major().len()),
                         plp_cnts.get_cnts().to_vec(),
                     )
                     .unwrap();
-                    let depth = cnts_array.sum_axis(Axis(0));
+                    let col_depth = cnts_array.sum_axis(Axis(0));
                     let mut major_depths = vec![];
                     let mut eq_cnts = vec![];
                     let mut freq = vec![];
 
-                    plp_cnts
+                    let major_idx_in_plp_cnts = plp_cnts
                         .get_major()
                         .iter()
                         .zip(plp_cnts.get_minor().iter())
                         .enumerate()
-                        .for_each(|(idx, (&ma, &mi))| {
-                            if mi == 0 {
-                                let dep = depth[idx];
-                                major_depths.push(dep);
+                        .filter(|(_, (_, mi))| **mi == 0)
+                        .map(|(idx, (&ma, _))| (ma, idx))
+                        .collect::<HashMap<_, _>>();
 
-                                let eq_cnt = cnts_array
-                                    [[get_base_idx(seq.as_bytes()[ma], true), idx]]
-                                    + cnts_array[[get_base_idx(seq.as_bytes()[ma], false), idx]];
-                                eq_cnts.push(eq_cnt);
+                    (0..seq.len()).into_iter().for_each(|major_pos| {
+                        let mut depth = 0;
+                        let mut cnt = 0;
+                        if let Some(idx) = major_idx_in_plp_cnts.get(&major_pos).map(|v| *v) {
+                            depth = col_depth[idx];
+                            cnt = cnts_array
+                                    [[get_base_idx(seq.as_bytes()[major_pos], true), idx]]
+                                    + cnts_array[[get_base_idx(seq.as_bytes()[major_pos], false), idx]];
+                        }
 
-                                freq.push(eq_cnt as f32 / dep as f32);
-                            }
-                        });
+                        major_depths.push(depth);
+                        eq_cnts.push(cnt);
+                        freq.push(if depth == 0 {0.0} else {cnt as f32 / depth as f32});
+
+                    });
+
+                    if seq.len() != freq.len() {
+                        let major_points_set =
+                            plp_cnts.get_major().iter().copied().collect::<HashSet<_>>();
+                        let mut major_points = major_points_set.into_iter().collect::<Vec<_>>();
+                        major_points.sort();
+
+                        // let pos_set = plp_cnts
+                        //     .get_major()
+                        //     .iter()
+                        //     .zip(plp_cnts.get_minor().iter())
+                        //     .map(|(&ma, &mi)| (ma, mi))
+                        //     .collect::<HashSet<_>>();
+
+                        tracing::error!(
+                            "seq_len:{}, qual_len:{}, major_pos:{:?}",
+                            seq.len(),
+                            freq.len(),
+                            major_points
+                        );
+                        tracing::error!(
+                            "major-minor:{:?}",
+                            plp_cnts
+                                .get_major()
+                                .iter()
+                                .zip(plp_cnts.get_minor().iter())
+                                .collect::<Vec<_>>()
+                        );
+
+                        // for ma in plp_major_start..plp_major_end {
+                        //     if !pos_set.contains(&(ma, 0)) {
+                        //         tracing::error!("major init not found: {}", ma);
+                        //     }
+                        // }
+
+                        // assert_eq!(major_points.len(), freq.len());
+
+                        panic!();
+                    }
                     plp_res_sender_
                         .send((tid, PlpCntRes::new(freq, major_depths, eq_cnts, seq)))
                         .unwrap();
